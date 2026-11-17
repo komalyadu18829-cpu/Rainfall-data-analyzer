@@ -1,233 +1,203 @@
-import pandas as pd
-import numpy as np
+import os
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 
-# ------------------------------
-# Rainfall Data Analyzer
-# ------------------------------
-
-FILE_NAME = "rain.csv"
-
-
-# Load and validate CSV file
-def load_data():
+def load_and_clean_data(filename):
+    if not os.path.exists(filename):
+        print(f"Error: File '{filename}' not found.")
+        return None
 
     try:
-        df = pd.read_csv(
-            FILE_NAME,
-            dtype=str,
-            keep_default_na=False,
-            on_bad_lines="skip"
-        )
-
-        if not {"Month", "Rainfall_mm"}.issubset(df.columns):
-            print("Error: CSV must contain Month and Rainfall_mm columns.")
-            return pd.DataFrame(columns=["Month", "Rainfall_mm"])
-
-        valid_data = []
-
-        for i, row in df.iterrows():
-
-            month = str(row["Month"]).strip()
-            rainfall = str(row["Rainfall_mm"]).strip()
-
-            if not month:
-                print(f"Row {i + 1} skipped: Month is missing.")
-                continue
-
-            try:
-                value = float(rainfall)
-
-            except (ValueError, TypeError):
-                print(
-                    f"Row {i + 1} skipped: "
-                    f"invalid Rainfall '{rainfall}'."
-                )
-                continue
-
-            if not np.isfinite(value):
-                print(
-                    f"Row {i + 1} skipped: "
-                    f"invalid Rainfall '{rainfall}'."
-                )
-                continue
-
-            if value < 0:
-                print(
-                    f"Row {i + 1} skipped: "
-                    "Rainfall cannot be negative."
-                )
-                continue
-
-            valid_data.append([month, value])
-
-        return pd.DataFrame(
-            valid_data,
-            columns=["Month", "Rainfall_mm"]
-        )
-
-    except FileNotFoundError:
-        print("Error: rain.csv file not found.")
-        return pd.DataFrame(columns=["Month", "Rainfall_mm"])
-
+        df = pd.read_csv(filename)
     except Exception as e:
-        print("Error loading CSV:", e)
-        return pd.DataFrame(columns=["Month", "Rainfall_mm"])
+        print(f"Error reading CSV file: {e}")
+        return None
+
+    # Columns ke naam se extra space hatane ke liye
+    df.columns = [col.strip() for col in df.columns]
+
+    if "Month" not in df.columns or "Rainfall_mm" not in df.columns:
+        print("Error: CSV must contain 'Month' and 'Rainfall_mm' columns.")
+        return None
+
+    valid_months = []
+    valid_rainfall = []
+
+    for idx, row in df.iterrows():
+        row_num = idx + 1
+        month = str(row["Month"]).strip()
+        raw_val = str(row["Rainfall_mm"]).strip()
+
+        # Check for missing values
+        if pd.isna(row["Rainfall_mm"]) or raw_val == "" or raw_val.lower() == "nan":
+            print(f"Row {row_num} skipped: Missing Rainfall value.")
+            continue
+
+        # Check if numeric
+        try:
+            val = float(raw_val)
+        except ValueError:
+            print(f"Row {row_num} skipped: invalid Rainfall '{raw_val}'.")
+            continue
+
+        # Check for negative values
+        if val < 0:
+            print(f"Row {row_num} skipped: Rainfall cannot be negative.")
+            continue
+
+        valid_months.append(month)
+        valid_rainfall.append(val)
+
+    if len(valid_rainfall) < len(df):
+        total_valid = np.sum(valid_rainfall) if valid_rainfall else 0
+        formatted_total = (
+            int(total_valid)
+            if float(total_valid).is_integer()
+            else round(total_valid, 2)
+        )
+        print(f"Valid rows: {len(valid_rainfall)} | Total: {formatted_total} mm")
+
+    if not valid_rainfall:
+        print("No valid rainfall data available for analysis.")
+        return None
+
+    return pd.DataFrame({
+        "Month": valid_months,
+        "Rainfall_mm": np.array(valid_rainfall, dtype=float),
+    })
 
 
-# Calculate statistics using NumPy
+def format_num(val):
+    return f"{int(val)}" if float(val).is_integer() else f"{val:.2f}"
+
+
 def show_statistics(df):
+    months = df["Month"].to_numpy()
+    rain = df["Rainfall_mm"].to_numpy()
 
-    if df.empty:
-        print("No valid rainfall data available.")
+    total = np.sum(rain)
+    mean_val = np.mean(rain)
+    std_dev = np.std(rain)
+
+    if len(rain) == 1:
+        print(
+            f"Total: {format_num(total)} mm | Mean: {mean_val:.2f} | Std Dev: {std_dev:.2f}"
+        )
+        if rain[0] > 200:
+            print(f"Heavy rainfall months: {months[0]}")
+        else:
+            print("No month above 200 mm")
         return
 
-    rainfall = df["Rainfall_mm"].to_numpy()
+    max_idx = np.argmax(rain)
+    min_idx = np.argmin(rain)
 
-    total = np.sum(rainfall)
-    mean = np.mean(rainfall)
-    maximum = np.max(rainfall)
-    minimum = np.min(rainfall)
-    std_dev = np.std(rainfall)
-
-    max_month = df.loc[
-        df["Rainfall_mm"].idxmax(), "Month"
-    ]
-
-    min_month = df.loc[
-        df["Rainfall_mm"].idxmin(), "Month"
-    ]
-
-    print("\n========== RAINFALL STATISTICS ==========")
-
-    print(f"Total: {total:g} mm")
-    print(f"Mean: {mean:.2f} mm")
-    print(f"Max: {max_month} ({maximum:g})")
-    print(f"Min: {min_month} ({minimum:g})")
+    print(f"Total: {format_num(total)} mm | Mean: {mean_val:.2f}")
+    print(
+        f"Max: {months[max_idx]} ({format_num(rain[max_idx])}) | Min: {months[min_idx]} ({format_num(rain[min_idx])})"
+    )
     print(f"Std Dev: {std_dev:.2f}")
 
-    # Heavy rainfall means more than 200 mm
-    heavy = df[df["Rainfall_mm"] > 200]
-
-    if heavy.empty:
+    heavy_months = months[rain > 200]
+    if len(heavy_months) > 0:
+        print(f"Heavy rainfall months: {', '.join(heavy_months)}")
+    else:
         print("No month above 200 mm")
-    else:
-        months = ", ".join(heavy["Month"].tolist())
-        print("Heavy rainfall months:", months)
 
 
-# Compare rainfall with average
-def compare_average(df):
+def plot_rainfall_trend(df):
+    months = df["Month"].to_numpy()
+    rain = df["Rainfall_mm"].to_numpy()
 
-    if df.empty:
-        print("No valid rainfall data available.")
-        return
-
-    mean = np.mean(df["Rainfall_mm"])
-
-    above = df[df["Rainfall_mm"] > mean]
-    below = df[df["Rainfall_mm"] < mean]
-
-    print(f"\nAverage Rainfall: {mean:.2f} mm")
-
-    if not above.empty:
-        result = " | ".join(
-            f"{row['Month']} ({row['Rainfall_mm']:g})"
-            for _, row in above.iterrows()
-        )
-        print("Above average:", result)
-    else:
-        print("No month above average.")
-
-    if not below.empty:
-        result = " | ".join(
-            f"{row['Month']} ({row['Rainfall_mm']:g})"
-            for _, row in below.iterrows()
-        )
-        print("Below average:", result)
-    else:
-        print("No month below average.")
-
-
-# Display Bar and Line Charts
-def plot_charts(df):
-
-    if df.empty:
-        print("No data available for plotting.")
-        return
-
-    months = df["Month"]
-    rainfall = df["Rainfall_mm"]
-
-    # Bar Chart
-    plt.figure(figsize=(9, 5))
-    plt.bar(months, rainfall)
-
-    plt.title("Monthly Rainfall - Bar Chart")
-    plt.xlabel("Months")
-    plt.ylabel("Rainfall (mm)")
-    plt.grid(axis="y")
+    plt.figure(figsize=(8, 5))
+    plt.plot(
+        months,
+        rain,
+        marker="o",
+        linestyle="-",
+        color="teal",
+        linewidth=2,
+        markersize=8,
+    )
+    plt.title("Monthly Rainfall Trend", fontsize=14, fontweight="bold")
+    plt.xlabel("Month", fontsize=12)
+    plt.ylabel("Rainfall (mm)", fontsize=12)
+    plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
-
-    # Line Chart
-    plt.figure(figsize=(9, 5))
-    plt.plot(months, rainfall, marker="o")
-
-    plt.title("Monthly Rainfall - Line Chart")
-    plt.xlabel("Months")
-    plt.ylabel("Rainfall (mm)")
-    plt.grid(True)
-    plt.tight_layout()
-
-    print("\nBar chart and Line chart displayed.")
-
     plt.show()
+    print("Line chart 'Monthly Rainfall Trend' displayed")
 
 
-# Main Menu
+def compare_with_average_and_plot(df):
+    months = df["Month"].to_numpy()
+    rain = df["Rainfall_mm"].to_numpy()
+    mean_val = np.mean(rain)
+
+    above_items = [
+        f"{m} ({format_num(r)})"
+        for m, r in zip(months[rain > mean_val], rain[rain > mean_val])
+    ]
+    below_items = [
+        f"{m} ({format_num(r)})"
+        for m, r in zip(months[rain < mean_val], rain[rain < mean_val])
+    ]
+
+    above_str = " | ".join(above_items) if above_items else "None"
+    below_str = " | ".join(below_items) if below_items else "None"
+
+    print(f"Above average ({mean_val:.2f}): {above_str}")
+    print(f"Below average: {below_str}")
+
+    plt.figure(figsize=(8, 5))
+    plt.bar(months, rain, color="royalblue", edgecolor="black", width=0.5)
+    plt.axhline(
+        mean_val,
+        color="red",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Average ({mean_val:.2f} mm)",
+    )
+    plt.title("Monthly Rainfall", fontsize=14, fontweight="bold")
+    plt.xlabel("Month", fontsize=12)
+    plt.ylabel("Rainfall (mm)", fontsize=12)
+    plt.legend()
+    plt.grid(axis="y", linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+    print("Bar chart 'Monthly Rainfall' displayed")
+
+
 def main():
+    print("=== Rainfall Data Analyzer ===")
+    filename = input("Enter CSV file name: ").strip()
 
-    df = load_data()
-
-    if df.empty:
-        print("No valid data found. Please check rain.csv.")
+    df = load_and_clean_data(filename)
+    if df is None:
         return
 
     while True:
-
-        print("\n========== RAINFALL DATA ANALYZER ==========")
+        print("\n--- Menu ---")
         print("1. Statistics")
-        print("2. Display Charts")
-        print("3. Compare with Average and Plot")
-        print("4. Show All Analysis")
-        print("0. Exit")
+        print("2. Plot Rainfall Trend (Line Chart)")
+        print("3. Compare with average and plot (Bar Chart)")
+        print("4. Exit")
 
-        choice = input("\nEnter your choice: ").strip()
+        choice = input("Enter menu option (1-4): ").strip()
 
         if choice == "1":
             show_statistics(df)
-
         elif choice == "2":
-            plot_charts(df)
-
+            plot_rainfall_trend(df)
         elif choice == "3":
-            compare_average(df)
-            plot_charts(df)
-
+            compare_with_average_and_plot(df)
         elif choice == "4":
-            show_statistics(df)
-            compare_average(df)
-            plot_charts(df)
-
-        elif choice == "0":
-            print("Thank you for using Rainfall Data Analyzer!")
+            print("Exiting Rainfall Data Analyzer.")
             break
-
         else:
-            print("Invalid choice! Please select 0 to 4.")
+            print("Invalid option. Please choose between 1 and 4.")
 
 
-# Program execution
 if __name__ == "__main__":
     main()
